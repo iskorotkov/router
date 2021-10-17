@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -14,7 +15,7 @@ const (
 	defaultAdminPort = 7676
 )
 
-var routes = make(map[string]string)
+var routes = make(map[string]string) //nolint:gochecknoglobals
 
 func main() {
 	port := flag.Int("port", defaultPort, "main port used for access")
@@ -61,7 +62,7 @@ func applyRoute(rw http.ResponseWriter, r *http.Request) {
 
 	url := fmt.Sprintf("%s://%s%s", schema, host, r.URL.Path)
 
-	req, err := http.NewRequest(r.Method, url, r.Body)
+	req, err := http.NewRequestWithContext(context.Background(), r.Method, url, r.Body)
 	if err != nil {
 		log.Printf("error creating request: %v", err)
 		http.Error(rw, "", http.StatusBadRequest)
@@ -94,10 +95,10 @@ func applyRoute(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	rw.WriteHeader(resp.StatusCode)
-	fmt.Fprint(rw, string(b))
+	_, _ = fmt.Fprint(rw, string(b))
 }
 
-func listRoutes(rw http.ResponseWriter, r *http.Request) {
+func listRoutes(rw http.ResponseWriter, _ *http.Request) {
 	b, err := json.MarshalIndent(routes, "", "  ")
 	if err != nil {
 		log.Printf("error marshaling routes: %v", err)
@@ -107,7 +108,7 @@ func listRoutes(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	rw.Header().Add("Content-Type", http.DetectContentType(b))
-	fmt.Fprint(rw, string(b))
+	_, _ = fmt.Fprint(rw, string(b))
 }
 
 type createRouteDTO struct {
