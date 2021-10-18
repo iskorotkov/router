@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -63,16 +64,26 @@ func applyRoute(rw http.ResponseWriter, r *http.Request) {
 		schema = "https"
 	}
 
-	host := routes[r.Host]
+	referer := r.Header.Get("Referer")
+
+	refererURL, err := url.Parse(referer)
+	if err != nil {
+		log.Printf("error parsing referer %q: %v", referer, err)
+		http.Error(rw, "", http.StatusBadRequest)
+
+		return
+	}
+
+	host := routes[refererURL.Host]
 	if host == "" {
 		api404(rw, r)
 
 		return
 	}
 
-	url := fmt.Sprintf("%s://%s%s", schema, host, r.URL.Path)
+	otherURL := fmt.Sprintf("%s://%s%s", schema, host, r.URL.Path)
 
-	req, err := http.NewRequestWithContext(context.Background(), r.Method, url, r.Body)
+	req, err := http.NewRequestWithContext(context.Background(), r.Method, otherURL, r.Body)
 	if err != nil {
 		log.Printf("error creating request: %v", err)
 		http.Error(rw, "", http.StatusBadRequest)
@@ -82,7 +93,7 @@ func applyRoute(rw http.ResponseWriter, r *http.Request) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Printf("error getting content at %q: %v", url, err)
+		log.Printf("error getting content at %q: %v", otherURL, err)
 		http.Error(rw, "", http.StatusBadRequest)
 
 		return
