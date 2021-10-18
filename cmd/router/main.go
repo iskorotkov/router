@@ -16,16 +16,26 @@ import (
 const (
 	defaultPort      = 8080
 	defaultAdminPort = 7676
+
+	routeTypeRedirect routeType = "redirect"
+	routeTypeProxy    routeType = "proxy"
 )
 
 //nolint:gochecknoglobals
 var (
-	routes           = make(map[string]string)
+	routes           = make(map[string]routeInfo)
 	indexTemplate    = template.Must(template.ParseFiles("./static/html/index.html"))
 	notFoundTemplate = template.Must(template.ParseFiles("./static/html/404.html"))
 
 	ErrValidation = fmt.Errorf("validation failed")
 )
+
+type routeType string
+
+type routeInfo struct {
+	To   string
+	Type routeType
+}
 
 func main() {
 	port := flag.Int("port", defaultPort, "main port used for access")
@@ -64,25 +74,43 @@ func applyRoute(rw http.ResponseWriter, r *http.Request) {
 		schema = "https"
 	}
 
-	referer := r.Header.Get("Referer")
+	origin := strings.Replace(r.RemoteAddr, "[::1]", "localhost", 1)
 
-	refererURL, err := url.Parse(referer)
+	originURL, err := url.Parse(fmt.Sprintf("%s://%s", schema, origin))
 	if err != nil {
-		log.Printf("error parsing referer %q: %v", referer, err)
-		http.Error(rw, "", http.StatusBadRequest)
+		log.Printf("error parsing remote address: %v", err)
+		http.Error(rw, "", http.StatusInternalServerError)
 
 		return
 	}
 
-	host := routes[refererURL.Host]
-	if host == "" {
+	info := routes[originURL.Host]
+	if info.To == "" {
+		info = routes[originURL.Hostname()]
+	}
+
+	if info.To == "" {
 		api404(rw, r)
 
 		return
 	}
 
-	otherURL := fmt.Sprintf("%s://%s%s", schema, host, r.URL.Path)
+	otherURL := fmt.Sprintf("%s://%s%s", schema, info.To, r.URL.Path)
 
+	switch info.Type {
+	case routeTypeRedirect:
+		http.Redirect(rw, r, otherURL, http.StatusTemporaryRedirect)
+	case routeTypeProxy:
+		proxyRequest(rw, r, otherURL)
+	default:
+		log.Printf("unknown route type %q", info.Type)
+		http.Error(rw, "", http.StatusInternalServerError)
+
+		return
+	}
+}
+
+func proxyRequest(rw http.ResponseWriter, r *http.Request, otherURL string) {
 	req, err := http.NewRequestWithContext(context.Background(), r.Method, otherURL, r.Body)
 	if err != nil {
 		log.Printf("error creating request: %v", err)
@@ -135,6 +163,7 @@ func listRoutes(rw http.ResponseWriter, _ *http.Request) {
 type createRouteDTO struct {
 	From string `json:"from"`
 	To   string `json:"to"`
+	Type routeType
 }
 
 func (c *createRouteDTO) Validate() error {
@@ -143,6 +172,10 @@ func (c *createRouteDTO) Validate() error {
 
 	if c.From == "" || c.To == "" {
 		return fmt.Errorf("one of the fields of %v is empty: %w", c, ErrValidation)
+	}
+
+	if c.Type != routeTypeProxy && c.Type != routeTypeRedirect {
+		return fmt.Errorf("route type of %v is invalid: %w", c, ErrValidation)
 	}
 
 	return nil
@@ -174,7 +207,10 @@ func createRoute(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	routes[route.From] = route.To
+	routes[route.From] = routeInfo{
+		To:   route.To,
+		Type: route.Type,
+	}
 }
 
 type deleteRouteDTO struct {
@@ -228,7 +264,7 @@ func showDashboard(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := indexTemplate.Execute(rw, struct {
-		Routes map[string]string
+		Routes map[string]routeInfo
 	}{routes}); err != nil {
 		log.Printf("error executing template: %v", err)
 		rw.WriteHeader(http.StatusInternalServerError)

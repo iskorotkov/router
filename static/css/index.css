@@ -1,7 +1,7 @@
 @import 'fragments/_common.css';
 
 header {
-  padding: 0.5em 1em;
+  padding: 0.75em 1em;
   background-color: #5d7ce1;
   color: #ddd;
   box-shadow: 0 0 0.5em 0.5em;
@@ -57,6 +57,11 @@ h1 {
   gap: 0.5em;
   justify-items: center;
   align-items: center;
+  justify-content: center;
+}
+
+.txt-route-type {
+  font-style: italic;
 }
 
 .btn-delete-route, .btn-create-route {

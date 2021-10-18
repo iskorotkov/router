@@ -20,11 +20,14 @@
 
         {{if .Routes}}
             <ul class="lst-routes">
-                {{range $from, $to := .Routes}}
+                {{range $from, $info := .Routes}}
                     <li>
-                        <span>{{$from}}</span>
-                        <span> ⟶ </span>
-                        <span>{{$to}}</span>
+                        <span>
+                            <span>{{$from}}</span>
+                            <span> ⟶ </span>
+                            <span>{{$info.To}}</span>
+                            <span class="txt-route-type">({{$info.Type}})</span>
+                        </span>
 
                         <div class="expand"></div>
 
@@ -45,6 +48,14 @@
             <label>
                 To
                 <input id="int-route-to" type="text" required/>
+            </label>
+
+            <label>
+                Type
+                <select id="slt-route-type" required>
+                    <option selected>redirect</option>
+                    <option>proxy</option>
+                </select>
             </label>
 
             <button id="btn-create-route" class="btn-create-route" type="button">Create</button>

@@ -1,6 +1,7 @@
 const frmCreateRoute = document.getElementById('frm-create-route')
 const intRouteFrom = document.getElementById('int-route-from')
 const intRouteTo = document.getElementById('int-route-to')
+const sltRouteType = document.getElementById('slt-route-type')
 
 const btnCreateRoute = document.getElementById('btn-create-route')
 btnCreateRoute.addEventListener('click', () => {
@@ -14,10 +15,11 @@ btnCreateRoute.addEventListener('click', () => {
 
     const from = intRouteFrom.value
     const to = intRouteTo.value
+    const type = sltRouteType.value
 
     fetch('/api/v1/routes', {
         method: 'POST',
-        body: JSON.stringify({ from, to })
+        body: JSON.stringify({ from, to, type })
     }).then(() => document.location.reload())
 })
 
