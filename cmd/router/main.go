@@ -129,14 +129,6 @@ func proxyRequest(rw http.ResponseWriter, r *http.Request, otherURL string) {
 
 	defer resp.Body.Close()
 
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("error reading response body: %v", err)
-		http.Error(rw, "", http.StatusBadRequest)
-
-		return
-	}
-
 	for name, values := range resp.Header {
 		for _, v := range values {
 			rw.Header().Add(name, v)
@@ -144,7 +136,13 @@ func proxyRequest(rw http.ResponseWriter, r *http.Request, otherURL string) {
 	}
 
 	rw.WriteHeader(resp.StatusCode)
-	_, _ = fmt.Fprint(rw, string(b))
+
+	if _, err := io.Copy(rw, resp.Body); err != nil {
+		log.Printf("error copying request body: %v", err)
+		http.Error(rw, "", http.StatusInternalServerError)
+
+		return
+	}
 }
 
 func listRoutes(rw http.ResponseWriter, _ *http.Request) {
