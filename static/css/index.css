@@ -1,0 +1,91 @@
+@import 'fragments/_common.css';
+
+header {
+  padding: 0.5em 1em;
+  background-color: #5d7ce1;
+  color: #ddd;
+  box-shadow: 0 0 0.5em 0.5em;
+}
+
+.header-title {
+  margin: 0;
+  font-size: 1.5em;
+}
+
+main {
+  margin: 2em auto;
+  max-width: 40em;
+}
+
+h1 {
+  text-align: center;
+  width: 100%;
+}
+
+.txt-no-routes {
+  font-weight: bolder;
+  text-align: center;
+  width: 100%;
+}
+
+.lst-routes {
+  list-style: none;
+  margin: 0;
+  padding: 0
+}
+
+.lst-routes > li {
+  padding: 0.75em 1em;
+  margin: 0.5em 0;
+  border-radius: 0.25em;
+  border: #4444 solid thin;
+  box-shadow: 0 0 0.5em 0 #4444;
+  overflow: auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.expand {
+  flex: 1;
+}
+
+.frm-create-route {
+  margin: 2em 0 0 0;
+  display: flex;
+  flex-flow: row wrap;
+  gap: 0.5em;
+  justify-items: center;
+  align-items: center;
+}
+
+.btn-delete-route, .btn-create-route {
+  color: white;
+  border: none;
+  border-radius: 0.25em;
+  padding: 0.5em 1em;
+}
+
+.btn-delete-route {
+  background-color: #ff2a2a;
+}
+
+.btn-delete-route:hover {
+  background-color: #ff8989;
+}
+
+.btn-delete-route:active {
+  background-color: #dc0000;
+}
+
+.btn-create-route {
+  background-color: #149b14;
+}
+
+.btn-create-route:hover {
+  background-color: #86cc86;
+}
+
+.btn-create-route:active {
+  background-color: #326b32;
+}

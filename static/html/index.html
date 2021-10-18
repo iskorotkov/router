@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard | Router</title>
+    <link href="/css/index.css" rel="stylesheet">
+    <script src="/js/index.js" type="module" async defer></script>
+</head>
+
+<body>
+<header>
+    <p class="header-title">Dashboard</p>
+</header>
+
+<main>
+    <article>
+        <h1>Routes</h1>
+
+        {{if .Routes}}
+            <ul class="lst-routes">
+                {{range $from, $to := .Routes}}
+                    <li>
+                        <span>{{$from}}</span>
+                        <span> ⟶ </span>
+                        <span>{{$to}}</span>
+
+                        <div class="expand"></div>
+
+                        <button class="btn-delete-route" type="button" data-from="{{$from}}">Delete</button>
+                    </li>
+                {{end}}
+            </ul>
+        {{else}}
+            <p class="txt-no-routes">No routes configured yet.</p>
+        {{end}}
+
+        <form id="frm-create-route" class="frm-create-route" action="">
+            <label>
+                From
+                <input id="int-route-from" type="text" required/>
+            </label>
+
+            <label>
+                To
+                <input id="int-route-to" type="text" required/>
+            </label>
+
+            <button id="btn-create-route" class="btn-create-route" type="button">Create</button>
+        </form>
+    </article>
+</main>
+</body>
+
+</html>

@@ -1,0 +1,10 @@
+@import 'fragments/_common.css';
+
+main {
+  margin: 4em auto;
+  max-width: 40em;
+}
+
+h1, p {
+  text-align: center;
+}

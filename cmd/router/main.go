@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"html/template"
 	"io"
 	"log"
 	"net/http"
+	"strings"
 )
 
 const (
@@ -15,7 +17,14 @@ const (
 	defaultAdminPort = 7676
 )
 
-var routes = make(map[string]string) //nolint:gochecknoglobals
+//nolint:gochecknoglobals
+var (
+	routes           = make(map[string]string)
+	indexTemplate    = template.Must(template.ParseFiles("./static/html/index.html"))
+	notFoundTemplate = template.Must(template.ParseFiles("./static/html/404.html"))
+
+	ErrValidation = fmt.Errorf("validation failed")
+)
 
 func main() {
 	port := flag.Int("port", defaultPort, "main port used for access")
@@ -23,7 +32,7 @@ func main() {
 
 	go func() {
 		adminServer := http.NewServeMux()
-		adminServer.HandleFunc("/", func(rw http.ResponseWriter, r *http.Request) {
+		adminServer.HandleFunc("/api/v1/routes", func(rw http.ResponseWriter, r *http.Request) {
 			switch r.Method {
 			case http.MethodGet:
 				listRoutes(rw, r)
@@ -32,12 +41,14 @@ func main() {
 			case http.MethodDelete:
 				deleteRoute(rw, r)
 			default:
-				log.Printf("not found: %s", r.URL.Path)
-				http.NotFound(rw, r)
+				api404(rw, r)
 
 				return
 			}
 		})
+		adminServer.Handle("/css/", http.StripPrefix("/css/", http.FileServer(http.Dir("./static/css"))))
+		adminServer.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./static/js"))))
+		adminServer.HandleFunc("/", showDashboard)
 		log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *adminPort), adminServer))
 	}()
 
@@ -54,8 +65,7 @@ func applyRoute(rw http.ResponseWriter, r *http.Request) {
 
 	host := routes[r.Host]
 	if host == "" {
-		log.Printf("route not found: %s", r.Host)
-		http.NotFound(rw, r)
+		api404(rw, r)
 
 		return
 	}
@@ -116,6 +126,17 @@ type createRouteDTO struct {
 	To   string `json:"to"`
 }
 
+func (c *createRouteDTO) Validate() error {
+	c.From = strings.TrimSpace(c.From)
+	c.To = strings.TrimSpace(c.To)
+
+	if c.From == "" || c.To == "" {
+		return fmt.Errorf("one of the fields of %v is empty: %w", c, ErrValidation)
+	}
+
+	return nil
+}
+
 func createRoute(rw http.ResponseWriter, r *http.Request) {
 	b, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -135,11 +156,28 @@ func createRoute(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := route.Validate(); err != nil {
+		log.Printf("error validating dto: %v", err)
+		http.Error(rw, "", http.StatusBadRequest)
+
+		return
+	}
+
 	routes[route.From] = route.To
 }
 
 type deleteRouteDTO struct {
 	From string `json:"from"`
+}
+
+func (d *deleteRouteDTO) Validate() error {
+	d.From = strings.TrimSpace(d.From)
+
+	if d.From == "" {
+		return fmt.Errorf("one of the fields of %v is empty: %w", d, ErrValidation)
+	}
+
+	return nil
 }
 
 func deleteRoute(rw http.ResponseWriter, r *http.Request) {
@@ -161,5 +199,45 @@ func deleteRoute(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := route.Validate(); err != nil {
+		log.Printf("error validating dto: %v", err)
+		http.Error(rw, "", http.StatusBadRequest)
+
+		return
+	}
+
 	delete(routes, route.From)
+}
+
+func showDashboard(rw http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		show404(rw, r)
+
+		return
+	}
+
+	if err := indexTemplate.Execute(rw, struct {
+		Routes map[string]string
+	}{routes}); err != nil {
+		log.Printf("error executing template: %v", err)
+		rw.WriteHeader(http.StatusInternalServerError)
+
+		return
+	}
+}
+
+func api404(rw http.ResponseWriter, r *http.Request) {
+	log.Printf("not found: %s", r.URL.Path)
+	http.NotFound(rw, r)
+}
+
+func show404(rw http.ResponseWriter, r *http.Request) {
+	log.Printf("not found: %s", r.URL.Path)
+
+	if err := notFoundTemplate.Execute(rw, nil); err != nil {
+		log.Printf("error executing template: %v", err)
+		rw.WriteHeader(http.StatusInternalServerError)
+
+		return
+	}
 }

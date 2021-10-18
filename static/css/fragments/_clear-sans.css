@@ -1,0 +1,39 @@
+@font-face {
+  font-family: 'Clear Sans';
+  src: url('../fonts/clear-sans/ClearSans-Bold.woff');
+}
+
+@font-face {
+  font-family: 'Clear Sans';
+  src: url('../fonts/clear-sans/ClearSans-BoldItalic.woff');
+}
+
+@font-face {
+  font-family: 'Clear Sans';
+  src: url('../fonts/clear-sans/ClearSans-Italic.woff');
+}
+
+@font-face {
+  font-family: 'Clear Sans';
+  src: url('../fonts/clear-sans/ClearSans-Light.woff');
+}
+
+@font-face {
+  font-family: 'Clear Sans';
+  src: url('../fonts/clear-sans/ClearSans-Medium.woff');
+}
+
+@font-face {
+  font-family: 'Clear Sans';
+  src: url('../fonts/clear-sans/ClearSans-MediumItalic.woff');
+}
+
+@font-face {
+  font-family: 'Clear Sans';
+  src: url('../fonts/clear-sans/ClearSans-Regular.woff');
+}
+
+@font-face {
+  font-family: 'Clear Sans';
+  src: url('../fonts/clear-sans/ClearSans-Thin.woff');
+}
