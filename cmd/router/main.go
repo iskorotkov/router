@@ -116,7 +116,7 @@ func normalizeAddress(address string) ([]string, error) {
 	}
 
 	switch parsed.Hostname() {
-	case "[::1]", "127.0.0.1", "localhost":
+	case "::1", "127.0.0.1", "localhost":
 		return []string{"[::1]", "127.0.0.1", "localhost"}, nil
 	default:
 		return []string{address}, nil
