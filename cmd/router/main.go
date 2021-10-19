@@ -74,9 +74,9 @@ func applyRoute(rw http.ResponseWriter, r *http.Request) {
 		schema = "https"
 	}
 
-	origin := strings.Replace(r.RemoteAddr, "[::1]", "localhost", 1)
+	remoteAddress := strings.Replace(r.RemoteAddr, "[::1]", "localhost", 1)
 
-	originURL, err := url.Parse(fmt.Sprintf("%s://%s", schema, origin))
+	origin, err := url.Parse(fmt.Sprintf("%s://%s", schema, remoteAddress))
 	if err != nil {
 		log.Printf("error parsing remote address: %v", err)
 		http.Error(rw, "", http.StatusInternalServerError)
@@ -84,13 +84,14 @@ func applyRoute(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info := routes[originURL.Host]
+	info := routes[origin.Host]
 	if info.To == "" {
-		info = routes[originURL.Hostname()]
+		info = routes[origin.Hostname()]
 	}
 
 	if info.To == "" {
-		api404(rw, r)
+		log.Printf("no route configured for host %q", origin.Host)
+		rw.WriteHeader(http.StatusBadGateway)
 
 		return
 	}
