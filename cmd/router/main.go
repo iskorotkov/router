@@ -74,9 +74,7 @@ func applyRoute(rw http.ResponseWriter, r *http.Request) {
 		schema = "https"
 	}
 
-	remoteAddress := strings.Replace(r.RemoteAddr, "[::1]", "localhost", 1)
-
-	origin, err := url.Parse(fmt.Sprintf("%s://%s", schema, remoteAddress))
+	origins, err := normalizeAddress(fmt.Sprintf("%s://%s", schema, r.RemoteAddr))
 	if err != nil {
 		log.Printf("error parsing remote address: %v", err)
 		http.Error(rw, "", http.StatusInternalServerError)
@@ -84,30 +82,44 @@ func applyRoute(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info := routes[origin.Host]
-	if info.To == "" {
-		info = routes[origin.Hostname()]
-	}
+	for _, origin := range origins {
+		info, ok := routes[origin]
+		if !ok {
+			continue
+		}
 
-	if info.To == "" {
-		log.Printf("no route configured for host %q", origin.Host)
-		rw.WriteHeader(http.StatusBadGateway)
+		otherURL := fmt.Sprintf("%s://%s%s", schema, info.To, r.URL.Path)
+
+		switch info.Type {
+		case routeTypeRedirect:
+			http.Redirect(rw, r, otherURL, http.StatusTemporaryRedirect)
+		case routeTypeProxy:
+			proxyRequest(rw, r, otherURL)
+		default:
+			log.Printf("unknown route type %q", info.Type)
+			http.Error(rw, "", http.StatusInternalServerError)
+
+			return
+		}
 
 		return
 	}
 
-	otherURL := fmt.Sprintf("%s://%s%s", schema, info.To, r.URL.Path)
+	log.Printf("no route configured for host %q", r.RemoteAddr)
+	rw.WriteHeader(http.StatusBadGateway)
+}
 
-	switch info.Type {
-	case routeTypeRedirect:
-		http.Redirect(rw, r, otherURL, http.StatusTemporaryRedirect)
-	case routeTypeProxy:
-		proxyRequest(rw, r, otherURL)
+func normalizeAddress(address string) ([]string, error) {
+	parsed, err := url.Parse(address)
+	if err != nil {
+		return nil, fmt.Errorf("error normalizing address %q: %w", address, err)
+	}
+
+	switch parsed.Hostname() {
+	case "[::1]", "127.0.0.1", "localhost":
+		return []string{"[::1]", "127.0.0.1", "localhost"}, nil
 	default:
-		log.Printf("unknown route type %q", info.Type)
-		http.Error(rw, "", http.StatusInternalServerError)
-
-		return
+		return []string{address}, nil
 	}
 }
 
