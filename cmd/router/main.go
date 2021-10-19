@@ -11,35 +11,55 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+
+	"github.com/iskorotkov/router/internal/models"
+	"github.com/iskorotkov/router/internal/routing"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 const (
 	defaultPort      = 8080
 	defaultAdminPort = 7676
-
-	routeTypeRedirect routeType = "redirect"
-	routeTypeProxy    routeType = "proxy"
 )
 
 //nolint:gochecknoglobals
 var (
-	routes           = make(map[string]routeInfo)
+	db          *gorm.DB
+	routes      routing.Cache
+	syncWorkers sync.WaitGroup
+
 	indexTemplate    = template.Must(template.ParseFiles("./static/html/index.html"))
 	notFoundTemplate = template.Must(template.ParseFiles("./static/html/404.html"))
 
 	ErrValidation = fmt.Errorf("validation failed")
 )
 
-type routeType string
-
-type routeInfo struct {
-	To   string
-	Type routeType
-}
-
 func main() {
+	var err error
+
+	db, err = gorm.Open(sqlite.Open("var/db.sqlite"))
+	if err != nil {
+		log.Fatalf("error opening database: %v", err)
+	}
+
+	if err := db.AutoMigrate(
+		&models.Route{}, //nolint:exhaustivestruct
+	); err != nil {
+		log.Fatalf("error running migrations: %v", err)
+	}
+
+	populateRoutes(db)
+
 	port := flag.Int("port", defaultPort, "main port used for access")
 	adminPort := flag.Int("admin-port", defaultAdminPort, "admin port used for configuration and monitoring")
+
+	defer func() {
+		log.Printf("waiting for all sync workers to finish their work")
+
+		syncWorkers.Wait()
+	}()
 
 	go func() {
 		adminServer := http.NewServeMux()
@@ -65,7 +85,29 @@ func main() {
 
 	server := http.NewServeMux()
 	server.HandleFunc("/", applyRoute)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *port), server))
+
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", *port), server); err != nil {
+		log.Printf("error in server: %v", err)
+
+		return
+	}
+}
+
+func populateRoutes(db *gorm.DB) {
+	var storedRoutes []models.Route
+
+	if err := db.Order("id DESC").Find(&storedRoutes).Error; err != nil {
+		log.Fatalf("error reading stored routes from db: %v", err)
+	}
+
+	routes = routing.New()
+
+	for _, route := range storedRoutes {
+		routes.Set(route.From, routing.RouteInfo{
+			To:   route.To,
+			Type: route.Type,
+		})
+	}
 }
 
 func applyRoute(rw http.ResponseWriter, r *http.Request) {
@@ -83,7 +125,7 @@ func applyRoute(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, origin := range origins {
-		info, ok := routes[origin]
+		info, ok := routes.Get(origin)
 		if !ok {
 			continue
 		}
@@ -91,9 +133,9 @@ func applyRoute(rw http.ResponseWriter, r *http.Request) {
 		otherURL := fmt.Sprintf("%s://%s%s", schema, info.To, r.URL.Path)
 
 		switch info.Type {
-		case routeTypeRedirect:
+		case models.RouteTypeRedirect:
 			http.Redirect(rw, r, otherURL, http.StatusTemporaryRedirect)
-		case routeTypeProxy:
+		case models.RouteTypeProxy:
 			proxyRequest(rw, r, otherURL)
 		default:
 			log.Printf("unknown route type %q", info.Type)
@@ -161,7 +203,7 @@ func proxyRequest(rw http.ResponseWriter, r *http.Request, otherURL string) {
 }
 
 func listRoutes(rw http.ResponseWriter, _ *http.Request) {
-	b, err := json.MarshalIndent(routes, "", "  ")
+	b, err := json.MarshalIndent(routes.GetAll(), "", "  ")
 	if err != nil {
 		log.Printf("error marshaling routes: %v", err)
 		http.Error(rw, "", http.StatusInternalServerError)
@@ -176,7 +218,7 @@ func listRoutes(rw http.ResponseWriter, _ *http.Request) {
 type createRouteDTO struct {
 	From string `json:"from"`
 	To   string `json:"to"`
-	Type routeType
+	Type models.RouteType
 }
 
 func (c *createRouteDTO) Validate() error {
@@ -187,7 +229,7 @@ func (c *createRouteDTO) Validate() error {
 		return fmt.Errorf("one of the fields of %v is empty: %w", c, ErrValidation)
 	}
 
-	if c.Type != routeTypeProxy && c.Type != routeTypeRedirect {
+	if c.Type != models.RouteTypeProxy && c.Type != models.RouteTypeRedirect {
 		return fmt.Errorf("route type of %v is invalid: %w", c, ErrValidation)
 	}
 
@@ -220,10 +262,29 @@ func createRoute(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	routes[route.From] = routeInfo{
+	routes.Set(route.From, routing.RouteInfo{
 		To:   route.To,
 		Type: route.Type,
-	}
+	})
+
+	syncWorkers.Add(1)
+
+	go func() {
+		defer syncWorkers.Done()
+
+		if err := db.Save(&models.Route{
+			Model: gorm.Model{}, //nolint:exhaustivestruct
+			From:  route.From,
+			To:    route.To,
+			Type:  route.Type,
+		}).Error; err != nil {
+			log.Printf("error saving route to db: %v", err)
+
+			return
+		}
+
+		log.Printf("route saved to db")
+	}()
 }
 
 type deleteRouteDTO struct {
@@ -266,7 +327,21 @@ func deleteRoute(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	delete(routes, route.From)
+	routes.Remove(route.From)
+
+	syncWorkers.Add(1)
+
+	go func() {
+		defer syncWorkers.Done()
+
+		if err := db.Where("`from` = ?", route.From).Delete(&models.Route{}).Error; err != nil { //nolint:exhaustivestruct
+			log.Printf("error deleting route from db: %v", err)
+
+			return
+		}
+
+		log.Printf("route deleted from db")
+	}()
 }
 
 func showDashboard(rw http.ResponseWriter, r *http.Request) {
@@ -277,8 +352,10 @@ func showDashboard(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := indexTemplate.Execute(rw, struct {
-		Routes map[string]routeInfo
-	}{routes}); err != nil {
+		Routes map[string]routing.RouteInfo
+	}{
+		routes.GetAll(),
+	}); err != nil {
 		log.Printf("error executing template: %v", err)
 		rw.WriteHeader(http.StatusInternalServerError)
 
