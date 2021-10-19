@@ -120,6 +120,8 @@ func proxyRequest(rw http.ResponseWriter, r *http.Request, otherURL string) {
 		return
 	}
 
+	req.Header = r.Header
+
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Printf("error getting content at %q: %v", otherURL, err)
