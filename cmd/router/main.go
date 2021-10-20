@@ -41,7 +41,7 @@ var (
 func main() {
 	var err error
 
-	db, err = gorm.Open(sqlite.Open("data/db.sqlite"))
+	db, err = gorm.Open(sqlite.Open("db.sqlite"))
 	if err != nil {
 		log.Fatalf("error opening database: %v", err)
 	}

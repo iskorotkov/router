@@ -1,12 +1,12 @@
 .git
 .vscode
 .idea
-data
 build
 deploy
 
 .golangci-lint
 .gitignore
 .env
+db.sqlite
 Makefile
 README.md

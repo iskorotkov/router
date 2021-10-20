@@ -1,18 +1,18 @@
-FROM docker.io/library/golang:1.17-alpine AS build
-WORKDIR /src
+FROM docker.io/library/golang:1.17 AS build
+WORKDIR /go/src
 
 COPY go.mod .
 COPY go.sum .
-RUN go mod download
+RUN go get -d -v ./...
 
 COPY . .
-RUN CGO_ENABLED=0 go build -o app -v cmd/router/main.go
+RUN go build -o router -v cmd/router/main.go
 
-FROM docker.io/library/alpine as final
-WORKDIR /app
+FROM docker.io/library/fedora:35 as final
+WORKDIR /go/app
 
-COPY --from=build /src/app ./app
-COPY --from=build /src/static ./static
+COPY --from=build /go/src/router ./router
+COPY --from=build /go/src/static ./static
 
 EXPOSE 8080 7676
-ENTRYPOINT ["./app"]
+ENTRYPOINT ["/go/app/router"]
