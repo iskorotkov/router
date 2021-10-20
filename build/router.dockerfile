@@ -14,5 +14,4 @@ WORKDIR /
 COPY --from=build /build/app /app
 
 EXPOSE 8080 7676
-USER router:router
 ENTRYPOINT ["./app"]
