@@ -1,0 +1,12 @@
+.git
+.vscode
+.idea
+data
+build
+deploy
+
+.golangci-lint
+.gitignore
+.env
+Makefile
+README.md
