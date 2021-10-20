@@ -42,12 +42,12 @@
         <form id="frm-create-route" class="frm-create-route" action="">
             <label>
                 From
-                <input id="int-route-from" type="text" required/>
+                <input id="int-route-from" type="text" list="dat-hosts" required/>
             </label>
 
             <label>
                 To
-                <input id="int-route-to" type="text" required/>
+                <input id="int-route-to" type="text" list="dat-hosts" required/>
             </label>
 
             <label>
@@ -59,6 +59,12 @@
             </label>
 
             <button id="btn-create-route" class="btn-create-route" type="button">Create</button>
+
+            <datalist id="dat-hosts">
+                {{range .Hosts}}
+                    <option>{{.}}</option>
+                {{end}}
+            </datalist>
         </form>
     </article>
 </main>

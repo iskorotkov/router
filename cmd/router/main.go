@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/iskorotkov/router/internal/discover"
 	"github.com/iskorotkov/router/internal/models"
 	"github.com/iskorotkov/router/internal/routing"
 	"gorm.io/driver/sqlite"
@@ -26,9 +27,10 @@ const (
 
 //nolint:gochecknoglobals
 var (
-	db          *gorm.DB
-	routes      routing.Cache
-	syncWorkers sync.WaitGroup
+	db           *gorm.DB
+	routes       routing.Cache
+	autocomplete discover.Autocomplete
+	syncWorkers  sync.WaitGroup
 
 	indexTemplate    = template.Must(template.ParseFiles("./static/html/index.html"))
 	notFoundTemplate = template.Must(template.ParseFiles("./static/html/404.html"))
@@ -52,14 +54,19 @@ func main() {
 
 	populateRoutes(db)
 
-	port := flag.Int("port", defaultPort, "main port used for access")
-	adminPort := flag.Int("admin-port", defaultAdminPort, "admin port used for configuration and monitoring")
+	autocomplete, err = discover.NewAutocomplete()
+	if err != nil {
+		log.Fatalf("error creating discover client: %v", err)
+	}
 
 	defer func() {
 		log.Printf("waiting for all sync workers to finish their work")
 
 		syncWorkers.Wait()
 	}()
+
+	port := flag.Int("port", defaultPort, "main port used for access")
+	adminPort := flag.Int("admin-port", defaultAdminPort, "admin port used for configuration and monitoring")
 
 	go func() {
 		adminServer := http.NewServeMux()
@@ -351,10 +358,14 @@ func showDashboard(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	hosts := autocomplete.Hosts()
+
 	if err := indexTemplate.Execute(rw, struct {
 		Routes map[string]routing.RouteInfo
+		Hosts  []string
 	}{
 		routes.GetAll(),
+		hosts,
 	}); err != nil {
 		log.Printf("error executing template: %v", err)
 		rw.WriteHeader(http.StatusInternalServerError)
