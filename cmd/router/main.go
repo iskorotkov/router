@@ -10,6 +10,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -21,6 +23,11 @@ import (
 )
 
 const (
+	dataFolder = "data"
+	dbName     = "db.sqlite"
+
+	dataFolderPermissions = os.FileMode(0777) //nolint:gofumpt
+
 	defaultPort      = 8080
 	defaultAdminPort = 7676
 )
@@ -41,18 +48,10 @@ var (
 func main() {
 	var err error
 
-	db, err = gorm.Open(sqlite.Open("db.sqlite"))
+	db, err = setupDB()
 	if err != nil {
-		log.Fatalf("error opening database: %v", err)
+		log.Fatalf("error setting up db: %v", err)
 	}
-
-	if err := db.AutoMigrate(
-		&models.Route{}, //nolint:exhaustivestruct
-	); err != nil {
-		log.Fatalf("error running migrations: %v", err)
-	}
-
-	populateRoutes(db)
 
 	autocomplete, err = discover.NewAutocomplete()
 	if err != nil {
@@ -68,28 +67,12 @@ func main() {
 	port := flag.Int("port", defaultPort, "main port used for access")
 	adminPort := flag.Int("admin-port", defaultAdminPort, "admin port used for configuration and monitoring")
 
-	go func() {
-		adminServer := http.NewServeMux()
-		adminServer.HandleFunc("/api/v1/routes", func(rw http.ResponseWriter, r *http.Request) {
-			switch r.Method {
-			case http.MethodGet:
-				listRoutes(rw, r)
-			case http.MethodPost:
-				createRoute(rw, r)
-			case http.MethodDelete:
-				deleteRoute(rw, r)
-			default:
-				api404(rw, r)
+	go launchAdminServer(*adminPort)
 
-				return
-			}
-		})
-		adminServer.Handle("/css/", http.StripPrefix("/css/", http.FileServer(http.Dir("./static/css"))))
-		adminServer.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./static/js"))))
-		adminServer.HandleFunc("/", showDashboard)
-		log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *adminPort), adminServer))
-	}()
+	launchRouterServer(port)
+}
 
+func launchRouterServer(port *int) {
 	server := http.NewServeMux()
 	server.HandleFunc("/", applyRoute)
 
@@ -98,6 +81,54 @@ func main() {
 
 		return
 	}
+}
+
+func launchAdminServer(port int) {
+	adminServer := http.NewServeMux()
+	adminServer.HandleFunc("/api/v1/routes", func(rw http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			listRoutes(rw, r)
+		case http.MethodPost:
+			createRoute(rw, r)
+		case http.MethodDelete:
+			deleteRoute(rw, r)
+		default:
+			api404(rw, r)
+
+			return
+		}
+	})
+	adminServer.Handle("/css/", http.StripPrefix("/css/", http.FileServer(http.Dir("./static/css"))))
+	adminServer.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./static/js"))))
+	adminServer.HandleFunc("/", showDashboard)
+
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), adminServer); err != nil {
+		log.Printf("error in admin server: %v", err)
+
+		return
+	}
+}
+
+func setupDB() (*gorm.DB, error) {
+	if err := os.MkdirAll(dataFolder, dataFolderPermissions); err != nil {
+		return nil, fmt.Errorf("error creating data folder: %w", err)
+	}
+
+	db, err := gorm.Open(sqlite.Open(filepath.Join(dataFolder, dbName)))
+	if err != nil {
+		return nil, fmt.Errorf("error opening database: %w", err)
+	}
+
+	if err := db.AutoMigrate(
+		&models.Route{}, //nolint:exhaustivestruct
+	); err != nil {
+		return nil, fmt.Errorf("error running migrations: %w", err)
+	}
+
+	populateRoutes(db)
+
+	return db, nil
 }
 
 func populateRoutes(db *gorm.DB) {
