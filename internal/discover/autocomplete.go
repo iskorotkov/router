@@ -9,9 +9,10 @@ import (
 	"sync"
 
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/errdefs"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
 
 const elementsPerSource = 200
@@ -25,6 +26,7 @@ var dockerPodmanSockets = []string{ //nolint:gochecknoglobals
 
 type Autocomplete struct {
 	dockerPodmanClients []*client.Client
+	kubernetesClient    *kubernetes.Clientset
 }
 
 func NewAutocomplete() (Autocomplete, error) {
@@ -42,13 +44,13 @@ func NewAutocomplete() (Autocomplete, error) {
 
 		dockerPodman, err := NewDockerPodman(host)
 		if err != nil {
-			log.Printf("error creating docker/podman client with host %q: %v", host, err)
+			log.Printf("skipping docker/podman client with host %q: %v", host, err)
 
 			continue
 		}
 
 		if _, err := dockerPodman.Info(context.Background()); err != nil {
-			log.Printf("error getting docker/podman server info with host %q: %v", host, err)
+			log.Printf("skipping docker/podman server info with host %q: %v", host, err)
 
 			continue
 		}
@@ -56,17 +58,38 @@ func NewAutocomplete() (Autocomplete, error) {
 		dockerPodmanClients = append(dockerPodmanClients, dockerPodman)
 	}
 
+	kubernetesClient, err := NewKubernetes()
+	if err != nil {
+		log.Printf("skipping k8s client: %v", err)
+	}
+
 	return Autocomplete{
 		dockerPodmanClients: dockerPodmanClients,
+		kubernetesClient:    kubernetesClient,
 	}, nil
 }
 
 func (s Autocomplete) Hosts() []string {
 	containersNames := []string{"localhost"}
+	containersNamesQueue := make(chan string)
+
+	go func() {
+		for name := range containersNamesQueue {
+			containersNames = append(containersNames, name)
+		}
+
+		log.Printf("all container names have been set")
+	}()
 
 	var wg sync.WaitGroup
 
-	wg.Add(len(s.dockerPodmanClients))
+	wg.Add(len(s.dockerPodmanClients) + 1)
+
+	go func() {
+		defer wg.Done()
+
+		s.kubernetesNames(containersNamesQueue)
+	}()
 
 	for _, dockerPodman := range s.dockerPodmanClients {
 		dockerPodman := dockerPodman
@@ -74,61 +97,85 @@ func (s Autocomplete) Hosts() []string {
 		go func() {
 			defer wg.Done()
 
-			items, err := s.dockerPodmanContainers(dockerPodman)
-			if err != nil {
-				log.Printf("error autocompleting docker/podman containers: %v", err)
-
-				return
-			}
-
-			containersNames = append(containersNames, items...)
+			s.dockerPodmanNames(dockerPodman, containersNamesQueue)
 		}()
 	}
 
 	wg.Wait()
 
+	close(containersNamesQueue)
+
 	return containersNames
 }
 
-func (s Autocomplete) dockerPodmanContainers(c *client.Client) ([]string, error) {
-	containers, err := c.ContainerList(context.Background(), types.ContainerListOptions{
-		Quiet:   true,
-		Size:    false,
-		All:     false,
-		Latest:  false,
-		Since:   "",
-		Before:  "",
-		Limit:   elementsPerSource,
-		Filters: filters.Args{},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error listing docker/podman containers: %w", err)
+func (s Autocomplete) kubernetesNames(containersNamesQueue chan string) {
+	if s.kubernetesClient == nil {
+		return
 	}
 
-	var containersNames []string
+	namespaces, err := s.kubernetesClient.
+		CoreV1().
+		Namespaces().
+		List(context.Background(), v1.ListOptions{Limit: elementsPerSource}) //nolint:exhaustivestruct
+	if err != nil {
+		log.Printf("skipping k8s: error getting list of namespaces: %v", err)
+	}
 
-	for _, container := range containers {
-		for _, name := range container.Names {
-			for _, port := range container.Ports {
-				name := name[1:] // Trim '/' at the beginning.
-				containersNames = append(containersNames, fmt.Sprintf("%s:%d", name, port.PublicPort))
+	var wg sync.WaitGroup
+
+	wg.Add(len(namespaces.Items))
+
+	for _, ns := range namespaces.Items {
+		ns := ns
+
+		go func() {
+			defer wg.Done()
+
+			services, err := s.kubernetesClient.
+				CoreV1().
+				Services(ns.Name).
+				List(context.Background(), v1.ListOptions{Limit: elementsPerSource}) //nolint:exhaustivestruct
+			if err != nil {
+				log.Printf("skipping namespace %q: error getting list of services: %v", ns.Name, err)
+
+				return
+			}
+
+			for _, service := range services.Items {
+				for _, port := range service.Spec.Ports {
+					containersNamesQueue <- fmt.Sprintf("%s.%s.svc:%d", service.Name, ns.Name, port.Port)
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+func (s Autocomplete) dockerPodmanNames(c *client.Client, containersNamesQueue chan string) {
+	containers, err := c.ContainerList(context.Background(),
+		types.ContainerListOptions{Limit: elementsPerSource}) //nolint:exhaustivestruct
+	if err != nil {
+		log.Printf("skipping docker/podman containers: %v", err)
+	} else {
+		for _, container := range containers {
+			for _, name := range container.Names {
+				for _, port := range container.Ports {
+					name := name[1:] // Trim '/' at the beginning.
+					containersNamesQueue <- fmt.Sprintf("%s:%d", name, port.PublicPort)
+				}
 			}
 		}
 	}
 
-	services, err := c.ServiceList(context.Background(), types.ServiceListOptions{
-		Filters: filters.Args{},
-		Status:  false,
-	})
+	services, err := c.ServiceList(context.Background(), types.ServiceListOptions{}) //nolint:exhaustivestruct
 	if err != nil && !errdefs.IsNotFound(err) {
-		return containersNames, fmt.Errorf("error listing docker/podman services: %w", err)
-	}
-
-	for _, service := range services {
-		for _, port := range service.Endpoint.Ports {
-			containersNames = append(containersNames, fmt.Sprintf("%s:%d", service.Spec.Name, port.PublishedPort))
+		log.Printf("skipping docker/podman services: %v", err)
+	} else {
+		for _, service := range services {
+			for _, port := range service.Endpoint.Ports {
+				containersNamesQueue <- fmt.Sprintf("%s:%d", service.Spec.Name, port.PublishedPort)
+			}
 		}
 	}
-
-	return containersNames, nil
 }
