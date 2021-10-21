@@ -5,10 +5,10 @@ OWNER=iskorotkov
 REPO=router
 TAG=dev
 
-.PHONY: build push run
+.PHONY: build push
 
 build:
-	CI=true $(BUILD_TOOL) build -t $(OWNER)/$(REPO):$(TAG) -f $(FILE) .
+	CI=true $(BUILD_TOOL) build -t $(REGISTRY)/$(OWNER)/$(REPO):$(TAG) -f $(FILE) .
 
 push: build
-	CI=true $(BUILD_TOOL) push $(OWNER)/$(REPO):$(TAG) docker://$(REGISTRY)/$(OWNER)/$(REPO):$(TAG)
+	CI=true $(BUILD_TOOL) push $(REGISTRY)/$(OWNER)/$(REPO):$(TAG)
