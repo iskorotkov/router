@@ -91,8 +91,6 @@ func (s Autocomplete) Hosts() []string {
 }
 
 func (s Autocomplete) dockerPodmanContainers(c *client.Client) ([]string, error) {
-	var containersNames []string
-
 	containers, err := c.ContainerList(context.Background(), types.ContainerListOptions{
 		Quiet:   true,
 		Size:    false,
@@ -106,6 +104,8 @@ func (s Autocomplete) dockerPodmanContainers(c *client.Client) ([]string, error)
 	if err != nil {
 		return nil, fmt.Errorf("error listing docker/podman containers: %w", err)
 	}
+
+	var containersNames []string
 
 	for _, container := range containers {
 		for _, name := range container.Names {
@@ -121,7 +121,7 @@ func (s Autocomplete) dockerPodmanContainers(c *client.Client) ([]string, error)
 		Status:  false,
 	})
 	if err != nil && !errdefs.IsNotFound(err) {
-		return nil, fmt.Errorf("error listing docker/podman services: %w", err)
+		return containersNames, fmt.Errorf("error listing docker/podman services: %w", err)
 	}
 
 	for _, service := range services {
