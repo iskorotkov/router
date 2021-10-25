@@ -70,7 +70,8 @@ func NewAutocomplete() (Autocomplete, error) {
 }
 
 func (s Autocomplete) Hosts() []string {
-	containersNames := []string{"localhost"}
+	var containersNames []string
+
 	containersNamesQueue := make(chan string)
 
 	go func() {
