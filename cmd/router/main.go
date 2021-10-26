@@ -39,8 +39,8 @@ var (
 	autocomplete discover.Autocomplete
 	syncWorkers  sync.WaitGroup
 
-	indexTemplate    = template.Must(template.ParseFiles("./static/html/index.html"))
-	notFoundTemplate = template.Must(template.ParseFiles("./static/html/404.html"))
+	indexTemplate    *template.Template
+	notFoundTemplate *template.Template
 
 	ErrValidation = fmt.Errorf("validation failed")
 )
@@ -52,6 +52,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("error setting up db: %v", err)
 	}
+
+	indexTemplate = template.Must(template.ParseFiles("./static/html/index.html"))
+	notFoundTemplate = template.Must(template.ParseFiles("./static/html/404.html"))
 
 	autocomplete, err = discover.NewAutocomplete()
 	if err != nil {
@@ -154,7 +157,7 @@ func applyRoute(rw http.ResponseWriter, r *http.Request) {
 		schema = "https"
 	}
 
-	origins, err := normalizeAddress(fmt.Sprintf("%s://%s", schema, r.RemoteAddr))
+	origins, err := getAddressAliases(fmt.Sprintf("%s://%s", schema, r.RemoteAddr))
 	if err != nil {
 		log.Printf("error parsing remote address: %v", err)
 		http.Error(rw, "", http.StatusInternalServerError)
@@ -189,18 +192,34 @@ func applyRoute(rw http.ResponseWriter, r *http.Request) {
 	rw.WriteHeader(http.StatusBadGateway)
 }
 
-func normalizeAddress(address string) ([]string, error) {
+func getAddressAliases(address string) ([]string, error) {
 	parsed, err := url.Parse(address)
 	if err != nil {
 		return nil, fmt.Errorf("error normalizing address %q: %w", address, err)
 	}
 
+	var results []string
+
+	if parsed.Port() != "" {
+		switch parsed.Hostname() {
+		case "::1", "127.0.0.1", "localhost":
+			results = append(results,
+				fmt.Sprintf("[::1]:%s", parsed.Port()),
+				fmt.Sprintf("127.0.0.1:%s", parsed.Port()),
+				fmt.Sprintf("localhost:%s", parsed.Port()))
+		default:
+			results = append(results, parsed.Host)
+		}
+	}
+
 	switch parsed.Hostname() {
 	case "::1", "127.0.0.1", "localhost":
-		return []string{"[::1]", "127.0.0.1", "localhost"}, nil
+		results = append(results, "[::1]", "127.0.0.1", "localhost")
 	default:
-		return []string{address}, nil
+		results = append(results, parsed.Hostname())
 	}
+
+	return results, nil
 }
 
 func proxyRequest(rw http.ResponseWriter, r *http.Request, otherURL string) {
