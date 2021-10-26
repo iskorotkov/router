@@ -20,14 +20,25 @@ func NewServer(routes *routing.Cache) Server {
 	return Server{routes: routes}
 }
 
-func (s Server) ListenAndServe(port int) {
-	server := http.NewServeMux()
-	server.HandleFunc("/", s.applyRoute)
+func (s Server) ListenAndServe(ctx context.Context, port int) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.applyRoute)
 
-	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), server); err != nil {
-		log.Printf("error in server: %v", err)
+	server := http.Server{ //nolint:exhaustivestruct
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: mux,
+	}
+
+	if err := server.ListenAndServe(); err != nil {
+		log.Printf("router server stopped: %v", err)
 
 		return
+	}
+
+	<-ctx.Done()
+
+	if err := server.Close(); err != nil {
+		log.Printf("error closing router server: %v", err)
 	}
 }
 

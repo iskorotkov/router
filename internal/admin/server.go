@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -45,9 +46,9 @@ func NewServer(
 	}
 }
 
-func (s Server) ListenAndServe(port int) {
-	adminServer := http.NewServeMux()
-	adminServer.HandleFunc("/api/v1/routes", func(rw http.ResponseWriter, r *http.Request) {
+func (s Server) ListenAndServe(ctx context.Context, port int) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/routes", func(rw http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			s.listRoutes(rw, r)
@@ -61,14 +62,27 @@ func (s Server) ListenAndServe(port int) {
 			return
 		}
 	})
-	adminServer.Handle("/css/", http.StripPrefix("/css/", http.FileServer(http.Dir("./static/css"))))
-	adminServer.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./static/js"))))
-	adminServer.HandleFunc("/", s.showDashboard)
+	mux.Handle("/css/", http.StripPrefix("/css/", http.FileServer(http.Dir("./static/css"))))
+	mux.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./static/js"))))
+	mux.HandleFunc("/", s.showDashboard)
 
-	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), adminServer); err != nil {
-		log.Printf("error in admin server: %v", err)
+	server := http.Server{ //nolint:exhaustivestruct
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: mux,
+	}
 
-		return
+	go func() {
+		if err := server.ListenAndServe(); err != nil {
+			log.Printf("admin server stopped: %v", err)
+
+			return
+		}
+	}()
+
+	<-ctx.Done()
+
+	if err := server.Close(); err != nil {
+		log.Printf("error closing admin server: %v", err)
 	}
 }
 

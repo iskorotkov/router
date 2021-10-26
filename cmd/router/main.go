@@ -1,13 +1,17 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"html/template"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"sync"
+	"syscall"
 
 	"github.com/iskorotkov/router/internal/admin"
 	"github.com/iskorotkov/router/internal/discover"
@@ -32,11 +36,20 @@ const (
 var routes routing.Cache
 
 func main() {
+	defer func() {
+		if p := recover(); p != nil {
+			log.Printf("panic occurred: %v", p)
+			debug.PrintStack()
+		}
+	}()
+
 	var err error
 
 	db, err := setupDB()
 	if err != nil {
-		log.Fatalf("error setting up db: %v", err)
+		log.Printf("error setting up db: %v", err)
+
+		return
 	}
 
 	indexTemplate := template.Must(template.ParseFiles("./static/html/index.html"))
@@ -44,7 +57,9 @@ func main() {
 
 	autocomplete, err := discover.NewAutocomplete()
 	if err != nil {
-		log.Fatalf("error creating discover client: %v", err)
+		log.Printf("error creating discover client: %v", err)
+
+		return
 	}
 
 	var workers sync.WaitGroup
@@ -53,15 +68,26 @@ func main() {
 		log.Printf("waiting for all sync workers to finish their work")
 
 		workers.Wait()
+
+		log.Printf("all workers completed")
 	}()
 
 	adminPort := flag.Int("admin-port", defaultAdminPort, "admin port used for configuration and monitoring")
 	adminServer := admin.NewServer(&routes, &workers, indexTemplate, notFoundTemplate, autocomplete, db)
-	go adminServer.ListenAndServe(*adminPort)
 
 	port := flag.Int("port", defaultPort, "main port used for access")
 	routerServer := router.NewServer(&routes)
-	routerServer.ListenAndServe(*port)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go adminServer.ListenAndServe(ctx, *adminPort)
+	go routerServer.ListenAndServe(ctx, *port)
+
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT)
+
+	log.Printf("shutdown signal received: %v", <-ch)
 }
 
 func setupDB() (*gorm.DB, error) {
